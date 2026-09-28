@@ -20,57 +20,65 @@ function initTables() {
   db.exec(`
     CREATE TABLE IF NOT EXISTS products (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT,
-      brand TEXT,
-      serving_size TEXT,
-      serving_grams REAL,
+      name TEXT NOT NULL,
+      servingSize TEXT,
+      servingSizeGrams REAL,
       calories REAL,
-      protein REAL,
-      carbs REAL,
-      fat REAL,
-      saturated_fat REAL,
-      fiber REAL,
-      sugar REAL,
+      totalFat REAL,
+      saturatedFat REAL,
+      transFat REAL,
+      cholesterol REAL,
       sodium REAL,
-      custom_nutrients TEXT DEFAULT '{}',
-      ocr_text TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      totalCarbs REAL,
+      dietaryFiber REAL,
+      sugars REAL,
+      protein REAL,
+      otherNutrients TEXT DEFAULT '{}',
+      ocrText TEXT,
+      imageUrl TEXT,
+      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS meals (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
       date TEXT NOT NULL,
-      type TEXT DEFAULT 'meal',
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
-    CREATE TABLE IF NOT EXISTS meal_items (
+    CREATE TABLE IF NOT EXISTS mealItems (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      meal_id INTEGER NOT NULL,
-      product_id INTEGER,
-      product_name TEXT,
+      mealId INTEGER NOT NULL,
+      productId INTEGER,
+      productName TEXT,
       grams REAL NOT NULL,
       calories REAL,
-      protein REAL,
-      carbs REAL,
-      fat REAL,
-      saturated_fat REAL,
-      fiber REAL,
-      sugar REAL,
+      totalFat REAL,
+      saturatedFat REAL,
+      cholesterol REAL,
       sodium REAL,
-      custom_nutrients TEXT DEFAULT '{}',
-      FOREIGN KEY (meal_id) REFERENCES meals(id),
-      FOREIGN KEY (product_id) REFERENCES products(id)
+      totalCarbs REAL,
+      dietaryFiber REAL,
+      sugars REAL,
+      protein REAL,
+      otherNutrients TEXT DEFAULT '{}',
+      FOREIGN KEY (mealId) REFERENCES meals(id),
+      FOREIGN KEY (productId) REFERENCES products(id)
     );
 
-    CREATE TABLE IF NOT EXISTS custom_nutrients (
+    CREATE TABLE IF NOT EXISTS dailyTotals (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_key TEXT NOT NULL,
-      name TEXT NOT NULL,
-      unit TEXT NOT NULL DEFAULT 'g',
-      daily_goal REAL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      date TEXT NOT NULL UNIQUE,
+      calories REAL DEFAULT 0,
+      totalFat REAL DEFAULT 0,
+      saturatedFat REAL DEFAULT 0,
+      cholesterol REAL DEFAULT 0,
+      sodium REAL DEFAULT 0,
+      totalCarbs REAL DEFAULT 0,
+      dietaryFiber REAL DEFAULT 0,
+      sugars REAL DEFAULT 0,
+      protein REAL DEFAULT 0,
+      otherNutrients TEXT DEFAULT '{}'
     );
   `);
 }

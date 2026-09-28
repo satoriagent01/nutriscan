@@ -11,19 +11,19 @@ export function getDb() {
   if (!db) {
     db = new Database(dbPath);
     db.pragma('journal_mode = WAL');
-    initSchema();
+    initTables();
   }
   return db;
 }
 
-function initSchema() {
+function initTables() {
   db.exec(`
     CREATE TABLE IF NOT EXISTS products (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT,
       brand TEXT,
       serving_size TEXT,
-      serving_grams REAL,
+      serving_size_grams REAL,
       calories REAL,
       total_fat REAL,
       saturated_fat REAL,
@@ -32,59 +32,58 @@ function initSchema() {
       sodium REAL,
       total_carbs REAL,
       dietary_fiber REAL,
-      sugars REAL,
+      total_sugars REAL,
+      added_sugars REAL,
       protein REAL,
+      other_nutrients TEXT DEFAULT '{}',
       image_path TEXT,
-      raw_ocr TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS custom_nutrients (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      unit TEXT NOT NULL DEFAULT 'mg',
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS custom_nutrient_values (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
-      custom_nutrient_id INTEGER REFERENCES custom_nutrients(id) ON DELETE CASCADE,
-      value REAL,
-      UNIQUE(product_id, custom_nutrient_id)
     );
 
     CREATE TABLE IF NOT EXISTS meals (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
       date TEXT NOT NULL,
+      type TEXT NOT NULL DEFAULT 'meal',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS meal_items (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      meal_id INTEGER REFERENCES meals(id) ON DELETE CASCADE,
-      product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
+      meal_id INTEGER NOT NULL,
+      product_id INTEGER,
+      product_name TEXT,
       grams REAL NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      calories REAL,
+      total_fat REAL,
+      saturated_fat REAL,
+      sodium REAL,
+      total_carbs REAL,
+      protein REAL,
+      other_nutrients TEXT DEFAULT '{}',
+      FOREIGN KEY (meal_id) REFERENCES meals(id),
+      FOREIGN KEY (product_id) REFERENCES products(id)
     );
 
-    CREATE TABLE IF NOT EXISTS daily_totals (
+    CREATE TABLE IF NOT EXISTS custom_nutrients (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      date TEXT NOT NULL,
-      calories REAL DEFAULT 0,
-      total_fat REAL DEFAULT 0,
-      saturated_fat REAL DEFAULT 0,
-      cholesterol REAL DEFAULT 0,
-      sodium REAL DEFAULT 0,
-      total_carbs REAL DEFAULT 0,
-      dietary_fiber REAL DEFAULT 0,
-      sugars REAL DEFAULT 0,
-      protein REAL DEFAULT 0,
-      custom_nutrient_1 REAL DEFAULT 0,
-      custom_nutrient_2 REAL DEFAULT 0,
-      custom_nutrient_3 REAL DEFAULT 0,
-      UNIQUE(date)
+      name TEXT NOT NULL UNIQUE,
+      unit TEXT NOT NULL DEFAULT 'mg',
+      daily_target REAL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
   `);
+
+  // Insert default custom nutrients if none exist
+  const count = db.prepare('SELECT COUNT(*) as count FROM custom_nutrients').get();
+  if (count.count === 0) {
+    const insert = db.prepare(
+      'INSERT INTO custom_nutrients (name, unit, daily_target) VALUES (?, ?, ?)'
+    );
+    insert.run('Potasio', 'mg', 3500);
+    insert.run('Calcio', 'mg', 1000);
+    insert.run('Vitamina C', 'mg', 90);
+    insert.run('Hierro', 'mg', 18);
+    insert.run('Magnesio', 'mg', 400);
+  }
 }

@@ -1,18 +1,9 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import fs from 'fs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dbPath = path.join(__dirname, '..', 'data', 'nutriscan.db');
-
-// Ensure data directory exists
-const dataDir = path.dirname(dbPath);
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
-}
-
-const db = new Database(dbPath);
+const db = new Database(path.join(__dirname, '..', 'data', 'nutriscan.db'));
 
 // Enable WAL mode for better concurrency
 db.pragma('journal_mode = WAL');
@@ -26,17 +17,15 @@ db.exec(`
     serving_size TEXT,
     serving_grams REAL,
     calories REAL,
-    total_fat REAL,
-    saturated_fat REAL,
-    trans_fat REAL,
-    cholesterol REAL,
-    sodium REAL,
-    total_carbs REAL,
-    dietary_fiber REAL,
-    sugars REAL,
     protein REAL,
+    fat REAL,
+    saturated_fat REAL,
+    carbs REAL,
+    sugars REAL,
+    fiber REAL,
+    sodium REAL,
     other_nutrients TEXT DEFAULT '{}',
-    ocr_raw TEXT,
+    image_url TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
@@ -44,7 +33,7 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     date TEXT NOT NULL,
-    type TEXT DEFAULT 'meal',
+    type TEXT NOT NULL DEFAULT 'meal',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
@@ -55,26 +44,27 @@ db.exec(`
     product_name TEXT,
     grams REAL NOT NULL,
     calories REAL,
-    total_fat REAL,
-    saturated_fat REAL,
-    sodium REAL,
-    total_carbs REAL,
-    dietary_fiber REAL,
-    sugars REAL,
     protein REAL,
+    fat REAL,
+    saturated_fat REAL,
+    carbs REAL,
+    sugars REAL,
+    fiber REAL,
+    sodium REAL,
+    other_nutrients TEXT DEFAULT '{}',
     FOREIGN KEY (meal_id) REFERENCES meals(id) ON DELETE CASCADE,
-    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL
+    FOREIGN KEY (product_id) REFERENCES products(id)
   );
 
   CREATE TABLE IF NOT EXISTS custom_nutrients (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE,
-    unit TEXT DEFAULT 'g',
-    daily_goal REAL,
+    unit TEXT NOT NULL DEFAULT 'g',
+    daily_target REAL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
-  CREATE TABLE IF NOT EXISTS meal_custom_nutrients (
+  CREATE TABLE IF NOT EXISTS meal_item_custom_nutrients (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     meal_item_id INTEGER NOT NULL,
     custom_nutrient_id INTEGER NOT NULL,
@@ -85,17 +75,17 @@ db.exec(`
   );
 `);
 
-// Seed default custom nutrients if none exist
-const stmt = db.prepare('SELECT COUNT(*) as count FROM custom_nutrients');
-if (stmt.get().count === 0) {
-  const insert = db.prepare(
-    'INSERT INTO custom_nutrients (name, unit, daily_goal) VALUES (?, ?, ?)'
-  );
-  insert.run('Potasio', 'mg', 3500);
-  insert.run('Azúcares añadidos', 'g', 50);
-  insert.run('Vitamina C', 'mg', 90);
-  insert.run('Calcio', 'mg', 1000);
-  insert.run('Hierro', 'mg', 18);
-}
+// Seed default custom nutrients
+db.exec(`
+  INSERT OR IGNORE INTO custom_nutrients (name, unit, daily_target) VALUES
+    ('Potasio', 'mg', 3500),
+    ('Calcio', 'mg', 1000),
+    ('Hierro', 'mg', 18),
+    ('Vitamina C', 'mg', 90),
+    ('Vitamina D', 'IU', 600),
+    ('Colesterol', 'mg', 300),
+    ('Folato', 'mcg', 400),
+    ('Magnesio', 'mg', 420);
+`);
 
 export default db;

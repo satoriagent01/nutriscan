@@ -1,87 +1,51 @@
 import express from 'express';
 import cors from 'cors';
-import multer from 'multer';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import fs from 'fs';
 import db from './db.js';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3000;
 
-// Middleware
 app.use(cors());
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json());
 
-// Ensure uploads directory exists
-const uploadsDir = path.join(__dirname, '..', 'uploads');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
+// Ensure data directory exists
+const dataDir = path.join(__dirname, '..', 'data');
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir, { recursive: true });
 }
 
-// Multer config
-const storage = multer.diskStorage({
-  destination: uploadsDir,
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, `ocr-${uniqueSuffix}${path.extname(file.originalname)}`);
-  }
-});
-const upload = multer({ storage, limits: { fileSize: 10 * 1024 * 1024 } });
+// ─── Products ──────────────────────────────────────────────
 
-// ==================== OCR ENDPOINT ====================
-app.post('/api/ocr', upload.single('image'), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No image provided' });
-    }
-
-    // Return the image path for client-side OCR
-    res.json({
-      imagePath: `/uploads/${req.file.filename}`,
-      message: 'Image uploaded. Use Tesseract.js client-side for OCR.'
-    });
-  } catch (err) {
-    console.error('OCR upload error:', err);
-    res.status(500).json({ error: 'Failed to upload image' });
-  }
-});
-
-// ==================== PRODUCTS ====================
 app.get('/api/products', (req, res) => {
-  const products = db.prepare(
-    'SELECT * FROM products ORDER BY created_at DESC'
-  ).all();
+  const stmt = db.prepare('SELECT * FROM products ORDER BY created_at DESC');
+  const products = stmt.all();
   res.json(products);
 });
 
-app.post('/api/products', (req, res) => {
-  const { name, brand, serving_size, serving_grams, ...nutrients } = req.body;
-  const stmt = db.prepare(`
-    INSERT INTO products 
-    (name, brand, serving_size, serving_grams, calories, total_fat, saturated_fat, trans_fat, 
-     cholesterol, sodium, total_carbs, dietary_fiber, sugars, protein, other_nutrients, ocr_raw)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-  const result = stmt.run(
-    name || 'Sin nombre',
-    brand || '',
-    serving_size || '',
-    serving_grams || 100,
-    nutrients.calories || 0,
-    nutrients.total_fat || 0,
-    nutrients.saturated_fat || 0,
-    nutrients.trans_fat || 0,
-    nutrients.cholesterol || 0,
-    nutrients.sodium || 0,
-    nutrients.total_carbs || 0,
-    nutrients.dietary_fiber || 0,
-    nutrients.sugars || 0,
-    nutrients.protein || 0,
-    JSON.stringify(nutrients.other_nutrients || {}),
-    req.body.ocr_raw || ''
-  );
-  const product = db.prepare('SELECT * FROM products WHERE id = ?').get(result.lastInsertRowid);
+app.get('/api/products/:id', (req, res) => {
+  const stmt = db.prepare('SELECT * FROM products WHERE id = ?');
+  const product = stmt.get(req.params.id);
+  if (!product) return res.status(404).json({ error: 'Producto no encontrado' });
   res.json(product);
+});
+
+app.post('/api/products', (req, res) => {
+  const { name, brand, serving_size, serving_grams, calories, protein, fat, saturated_fat, carbs, sugars, fiber, sodium, other_nutrients, image_url } = req.body;
+  const stmt = db.prepare(
+    'INSERT INTO products (name, brand, serving_size, serving_grams, calories, protein, fat, saturated_fat, carbs, sugars, fiber, sodium, other_nutrients, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  );
+  const info = stmt.run(
+    name || '', brand || '', serving_size || '', serving_grams || 0,
+    calories || 0, protein || 0, fat || 0, saturated_fat || 0,
+    carbs || 0, sugars || 0, fiber || 0, sodium || 0,
+    JSON.stringify(other_nutrients || {}), image_url || ''
+  );
+  const product = db.prepare('SELECT * FROM products WHERE id = ?').get(info.lastInsertRowid);
+  res.status(201).json(product);
 });
 
 app.delete('/api/products/:id', (req, res) => {
@@ -89,30 +53,27 @@ app.delete('/api/products/:id', (req, res) => {
   res.json({ success: true });
 });
 
-// ==================== MEALS ====================
+// ─── Meals ─────────────────────────────────────────────────
+
 app.get('/api/meals', (req, res) => {
-  const { date } = req.query;
-  let meals;
-  if (date) {
-    meals = db.prepare(
-      'SELECT * FROM meals WHERE date = ? ORDER BY created_at DESC'
-    ).all(date);
-  } else {
-    meals = db.prepare(
-      'SELECT * FROM meals ORDER BY date DESC, created_at DESC LIMIT 30'
-    ).all();
-  }
+  const { date, type } = req.query;
+  let sql = 'SELECT * FROM meals WHERE 1=1';
+  const params = [];
+  if (date) { sql += ' AND date = ?'; params.push(date); }
+  if (type) { sql += ' AND type = ?'; params.push(type); }
+  sql += ' ORDER BY created_at DESC';
+  const stmt = db.prepare(sql);
+  const meals = stmt.all(...params);
   res.json(meals);
 });
 
 app.post('/api/meals', (req, res) => {
   const { name, date, type } = req.body;
-  const stmt = db.prepare(
-    'INSERT INTO meals (name, date, type) VALUES (?, ?, ?)'
-  );
-  const result = stmt.run(name || 'Comida', date || new Date().toISOString().split('T')[0], type || 'meal');
-  const meal = db.prepare('SELECT * FROM meals WHERE id = ?').get(result.lastInsertRowid);
-  res.json(meal);
+  if (!name || !date) return res.status(400).json({ error: 'Nombre y fecha son requeridos' });
+  const stmt = db.prepare('INSERT INTO meals (name, date, type) VALUES (?, ?, ?)');
+  const info = stmt.run(name, date, type || 'meal');
+  const meal = db.prepare('SELECT * FROM meals WHERE id = ?').get(info.lastInsertRowid);
+  res.status(201).json(meal);
 });
 
 app.delete('/api/meals/:id', (req, res) => {
@@ -120,24 +81,27 @@ app.delete('/api/meals/:id', (req, res) => {
   res.json({ success: true });
 });
 
-// ==================== MEAL ITEMS ====================
+// ─── Meal Items ────────────────────────────────────────────
+
+app.get('/api/meals/:mealId/items', (req, res) => {
+  const stmt = db.prepare('SELECT * FROM meal_items WHERE meal_id = ?');
+  const items = stmt.all(req.params.mealId);
+  res.json(items);
+});
+
 app.post('/api/meals/:mealId/items', (req, res) => {
-  const { mealId } = req.params;
-  const { product_id, product_name, grams, ...nutrients } = req.body;
-  const stmt = db.prepare(`
-    INSERT INTO meal_items 
-    (meal_id, product_id, product_name, grams, calories, total_fat, saturated_fat, 
-     sodium, total_carbs, dietary_fiber, sugars, protein)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-  const result = stmt.run(
-    mealId, product_id || null, product_name || '', grams,
-    nutrients.calories || 0, nutrients.total_fat || 0, nutrients.saturated_fat || 0,
-    nutrients.sodium || 0, nutrients.total_carbs || 0, nutrients.dietary_fiber || 0,
-    nutrients.sugars || 0, nutrients.protein || 0
+  const { product_id, product_name, grams, calories, protein, fat, saturated_fat, carbs, sugars, fiber, sodium, other_nutrients } = req.body;
+  const stmt = db.prepare(
+    'INSERT INTO meal_items (meal_id, product_id, product_name, grams, calories, protein, fat, saturated_fat, carbs, sugars, fiber, sodium, other_nutrients) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   );
-  const item = db.prepare('SELECT * FROM meal_items WHERE id = ?').get(result.lastInsertRowid);
-  res.json(item);
+  const info = stmt.run(
+    req.params.mealId, product_id || null, product_name || '', grams,
+    calories || 0, protein || 0, fat || 0, saturated_fat || 0,
+    carbs || 0, sugars || 0, fiber || 0, sodium || 0,
+    JSON.stringify(other_nutrients || {})
+  );
+  const item = db.prepare('SELECT * FROM meal_items WHERE id = ?').get(info.lastInsertRowid);
+  res.status(201).json(item);
 });
 
 app.delete('/api/meals/items/:id', (req, res) => {
@@ -145,45 +109,27 @@ app.delete('/api/meals/items/:id', (req, res) => {
   res.json({ success: true });
 });
 
-// ==================== DAILY SUMMARY ====================
-app.get('/api/summary/:date', (req, res) => {
-  const { date } = req.params;
-  const summary = db.prepare(`
-    SELECT 
-      COALESCE(SUM(calories), 0) as total_calories,
-      COALESCE(SUM(total_fat), 0) as total_fat,
-      COALESCE(SUM(saturated_fat), 0) as total_saturated_fat,
-      COALESCE(SUM(sodium), 0) as total_sodium,
-      COALESCE(SUM(total_carbs), 0) as total_carbs,
-      COALESCE(SUM(dietary_fiber), 0) as total_fiber,
-      COALESCE(SUM(sugars), 0) as total_sugars,
-      COALESCE(SUM(protein), 0) as total_protein,
-      COUNT(DISTINCT mi.id) as total_items,
-      COUNT(DISTINCT m.id) as total_meals
-    FROM meal_items mi
-    JOIN meals m ON mi.meal_id = m.id
-    WHERE m.date = ?
-  `).get(date);
-  res.json(summary);
-});
+// ─── Custom Nutrients ──────────────────────────────────────
 
-// ==================== CUSTOM NUTRIENTS ====================
 app.get('/api/custom-nutrients', (req, res) => {
-  const nutrients = db.prepare('SELECT * FROM custom_nutrients ORDER BY name').all();
+  const stmt = db.prepare('SELECT * FROM custom_nutrients ORDER BY name');
+  const nutrients = stmt.all();
   res.json(nutrients);
 });
 
 app.post('/api/custom-nutrients', (req, res) => {
-  const { name, unit, daily_goal } = req.body;
+  const { name, unit, daily_target } = req.body;
+  if (!name) return res.status(400).json({ error: 'Nombre requerido' });
   try {
-    const result = db.prepare('INSERT INTO custom_nutrients (name, unit, daily_goal) VALUES (?, ?, ?)').run(name, unit || 'g', daily_goal || 0);
-    const nutrient = db.prepare('SELECT * FROM custom_nutrients WHERE id = ?').get(result.lastInsertRowid);
-    res.json(nutrient);
-  } catch (err) {
-    if (err.message.includes('UNIQUE')) {
-      return res.status(409).json({ error: 'Nutrient already exists' });
+    const stmt = db.prepare('INSERT INTO custom_nutrients (name, unit, daily_target) VALUES (?, ?, ?)');
+    const info = stmt.run(name, unit || 'g', daily_target || null);
+    const nutrient = db.prepare('SELECT * FROM custom_nutrients WHERE id = ?').get(info.lastInsertRowid);
+    res.status(201).json(nutrient);
+  } catch (e) {
+    if (e.message.includes('UNIQUE')) {
+      return res.status(409).json({ error: 'Ya existe un nutriente con ese nombre' });
     }
-    throw err;
+    throw e;
   }
 });
 
@@ -192,17 +138,60 @@ app.delete('/api/custom-nutrients/:id', (req, res) => {
   res.json({ success: true });
 });
 
-// ==================== UPLOADS (static) ====================
-app.use('/uploads', express.static(uploadsDir));
+// ─── Daily Summary ─────────────────────────────────────────
 
-// ==================== HEALTH CHECK ====================
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+app.get('/api/summary', (req, res) => {
+  const { date } = req.query;
+  if (!date) return res.status(400).json({ error: 'Fecha requerida' });
+
+  const stmt = db.prepare(`
+    SELECT
+      COALESCE(SUM(calories), 0) as total_calories,
+      COALESCE(SUM(protein), 0) as total_protein,
+      COALESCE(SUM(fat), 0) as total_fat,
+      COALESCE(SUM(saturated_fat), 0) as total_saturated_fat,
+      COALESCE(SUM(carbs), 0) as total_carbs,
+      COALESCE(SUM(sugars), 0) as total_sugars,
+      COALESCE(SUM(fiber), 0) as total_fiber,
+      COALESCE(SUM(sodium), 0) as total_sodium
+    FROM meal_items mi
+    JOIN meals m ON mi.meal_id = m.id
+    WHERE m.date = ?
+  `);
+  const totals = stmt.get(date);
+
+  // Get custom nutrient totals
+  const customNutrients = db.prepare('SELECT * FROM custom_nutrients').all();
+  const customTotals = {};
+  for (const cn of customNutrients) {
+    const cstmt = db.prepare(`
+      SELECT COALESCE(SUM(value), 0) as total
+      FROM meal_item_custom_nutrients micn
+      JOIN meal_items mi ON micn.meal_item_id = mi.id
+      JOIN meals m ON mi.meal_id = m.id
+      WHERE micn.custom_nutrient_id = ? AND m.date = ?
+    `);
+    const ctotal = cstmt.get(cn.id, date);
+    customTotals[cn.name] = { total: ctotal.total, unit: cn.unit, daily_target: cn.daily_target };
+  }
+
+  res.json({ ...totals, custom: customTotals });
 });
 
-// ==================== START ====================
+// ─── OCR Endpoint (proxy for Tesseract.js worker) ──────────
+// The actual OCR happens client-side with Tesseract.js
+// This endpoint is reserved for future AI enhancements
+
+// ─── Serve frontend ────────────────────────────────────────
+
+const clientDist = path.join(__dirname, '..', 'client', 'dist');
+if (fs.existsSync(clientDist)) {
+  app.use(express.static(clientDist));
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(clientDist, 'index.html'));
+  });
+}
+
 app.listen(PORT, () => {
-  console.log(`NutriScan server running on http://localhost:${PORT}`);
+  console.log(`🍽️ NutriScan server running on http://localhost:${PORT}`);
 });
-
-export default app;
